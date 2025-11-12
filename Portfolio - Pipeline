@@ -6,3 +6,156 @@ portfolio-pipeline/
   src/
     portfolio_pipeline.py
   main.py
+
+!pip install -q "websockets==15.0.1"
+!pip install -q "cvxpy>=1.4" ecos osqp scs yfinance 
+
+
+# Efficient Frontier + Allocation
+
+import sys, warnings, subprocess
+warnings.filterwarnings("ignore")
+
+TICKERS = ['KO','GE','NVDA']     # start with 3 for the clean crossing; expand later
+START_DATE = '2020-01-01'
+END_DATE   = '2025-11-03'
+INTERVAL   = '1d'
+AUTO_ADJUST = True
+USE_MONTHLY = True               # monthly = cleaner signals
+
+ALLOW_SHORT = False              # long-only
+MAX_WEIGHT  = None               # NO cap (this is key to the shape)
+TAU_SPREAD  = 0.0                # NO tilt/prior
+NUM_CAPS    = 400                 # resolution for smooth curves
+MIN_DATA_FRAC = 0.85             # drop sparse columns
+
+SHOW_X = "cap"                   # "cap" (variance cap, like prof) or "vol" (achieved vol)
+
+def ensure(pkg):
+    try: __import__(pkg)
+    except Exception: subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", pkg])
+ensure("yfinance"); ensure("cvxpy")
+for s in ["ecos","osqp","scs"]:
+    try: __import__(s)
+    except Exception: subprocess.call([sys.executable, "-m", "pip", "install", "-q", s])
+
+import numpy as np, pandas as pd, matplotlib.pyplot as plt, yfinance as yf, cvxpy as cp
+
+def pick_price_frame(raw, prefer=('Adj Close','Close')):
+    if raw is None or raw.empty: return pd.DataFrame()
+    if isinstance(raw.columns, pd.MultiIndex):
+        top = set(raw.columns.get_level_values(0))
+        for f in prefer:
+            if f in top: return raw[f].copy()
+        return raw[list(top)[0]].copy()
+    for f in prefer:
+        if f in raw.columns: return raw[[f]].rename(columns={f:'Price'})
+    num_cols = [c for c in raw.columns if np.issubdtype(raw[c].dtype, np.number)]
+    return raw[[num_cols[0]]].rename(columns={num_cols[0]:'Price'}) if num_cols else pd.DataFrame()
+
+print(f"Downloading {TICKERS} from {START_DATE} to {END_DATE} ({INTERVAL})...")
+close_px = pd.DataFrame()
+for t in TICKERS:
+    raw = yf.download(t, start=START_DATE, end=END_DATE, interval=INTERVAL,
+                      auto_adjust=AUTO_ADJUST, progress=False, group_by='column')
+    if raw.empty:
+        print(f"[warn] no data for {t}");
+        continue
+    px = pick_price_frame(raw, prefer=('Adj Close','Close'))
+    if px.empty:
+        print(f"[warn] no usable field for {t}");
+        continue
+    series = px.iloc[:,0].rename(t)
+    close_px = series.to_frame() if close_px.empty else close_px.join(series, how='outer')
+
+if not isinstance(close_px.index, pd.DatetimeIndex):
+    close_px.index = pd.to_datetime(close_px.index)
+close_px = close_px.sort_index().dropna(how='all')
+
+prices_use = close_px.resample('M').last() if USE_MONTHLY else close_px
+rets = prices_use.pct_change().dropna(how='all')
+
+min_rows = int(MIN_DATA_FRAC * len(rets))
+keep = [c for c in rets.columns if rets[c].count() >= min_rows]
+rets = rets[keep].dropna()
+assets = list(rets.columns); n = len(assets)
+if n < 2: raise ValueError(f"Need >=2 assets; kept: {assets}")
+
+mu = rets.mean().values
+Sigma = rets.cov().values
+# PSD fix
+eigvals, eigvecs = np.linalg.eigh(Sigma); eigvals[eigvals<0] = 0.0
+Sigma_psd = eigvecs @ np.diag(eigvals) @ eigvecs.T
+
+def pvar(w): return float(w @ Sigma_psd @ w)
+def pvol(w): return float(np.sqrt(pvar(w)))
+def pret(w): return float(mu @ w)
+
+x_min = cp.Variable(n)
+cons = [cp.sum(x_min) == 1]
+if not ALLOW_SHORT: cons += [x_min >= 0]
+cp.Problem(cp.Minimize(cp.quad_form(x_min, Sigma_psd)), cons).solve(solver=cp.SCS, verbose=False)
+w_min = np.array(x_min.value).ravel()
+min_var = pvar(w_min)
+
+single_asset_vars = np.diag(Sigma_psd)           # variance if 100% in one asset
+max_single_var = float(single_asset_vars.max())  # right edge where a single name can dominate
+
+# Cap grid: slightly below min-var up to beyond single-asset variance
+caps = np.linspace(min_var*0.95, max_single_var*1.30, NUM_CAPS)
+
+def solve_cap(cap_var):
+    x = cp.Variable(n)
+    cons = [cp.sum(x) == 1, cp.quad_form(x, Sigma_psd) <= cap_var]
+    if not ALLOW_SHORT: cons += [x >= 0]
+    # No cap; no prior: maximize expected return at this risk cap
+    prob = cp.Problem(cp.Maximize(mu @ x), cons)
+    for s in ["ECOS","OSQP","SCS"]:
+        if s not in cp.installed_solvers(): continue
+        try:
+            prob.solve(solver=getattr(cp, s), verbose=False)
+            if x.value is not None and prob.status.startswith("optimal"):
+                w = np.array(x.value).ravel()
+                return {"w": w, "ret": pret(w), "vol": pvol(w), "cap": cap_var}
+        except Exception:
+            continue
+    return None
+
+pts = [out for cap in caps if (out := solve_cap(float(cap))) is not None]
+if not pts: raise RuntimeError("No feasible points. Check tickers/dates.")
+
+front = pd.DataFrame(pts)
+front.sort_values("cap", inplace=True, ignore_index=True)
+W = np.vstack(front["w"].values)          # (k, n)
+alloc = pd.DataFrame(W, columns=assets)
+alloc["cap"] = front["cap"].values
+alloc["vol"] = front["vol"].values
+
+# Efficient frontier (optional — keep for sanity)
+plt.figure(figsize=(8.6,5.6))
+plt.plot(front["vol"], front["ret"], marker="o", label="Efficient frontier")
+plt.xlabel("Portfolio Volatility (σ)")
+plt.ylabel("Expected Return (period)")
+plt.title("Efficient Frontier (sanity check)")
+plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
+
+# Allocation vs variance cap — matches your prof’s axis
+xkey = "cap" if SHOW_X=="cap" else "vol"
+xlabel = "Risk Cap (variance, x'Σx)" if xkey=="cap" else "Portfolio Volatility (σ)"
+
+for a in assets:
+    plt.plot(
+        alloc[xkey], alloc[a],
+        linestyle="-",
+        marker="o",
+        markersize=2,
+        linewidth=0.6,
+        alpha=0.9,
+        label=a
+    )
+    plt.scatter(alloc[xkey], alloc[a], s=6, alpha=0.7)
+plt.ylim(0.0, 1.0)                # show full proportions
+plt.xlabel(xlabel)
+plt.ylabel("Proportion invested")
+plt.title("Optimal Allocation vs Risk (long-only, no caps/prior)")
+plt.grid(True); plt.legend(ncol=2); plt.tight_layout(); plt.show()
