@@ -1,1 +1,0 @@
-# bdm_fall25_opt

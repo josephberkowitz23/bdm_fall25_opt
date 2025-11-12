@@ -1,0 +1,8 @@
+portfolio-pipeline/
+  README.md
+  requirements.txt
+  .gitifnore
+  LICENSE
+  src/
+    portfolio_pipeline.py
+  main.py
