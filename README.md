@@ -1,12 +1,12 @@
 # Portfolio Pipeline
 
-A lightweight pipeline for downloading equity prices, fitting a mean-variance optimization model, and visualizing the efficient frontier plus optimal allocations. The layout mirrors the structure requested by the professor so anyone can clone the repo, install dependencies, and run the CLI.
+A lightweight pipeline for downloading equity prices, fitting a mean-variance optimization model with Pyomo + IPOPT, and visualizing the efficient frontier plus optimal allocations. The layout mirrors the structure requested by the professor so anyone can clone the repo, install dependencies, and run the CLI.
 
 ## Features
 - Pulls price history with [yfinance](https://pypi.org/project/yfinance/).
-- Cleans and resamples prices (daily or monthly) before computing returns.
-- Solves a long-only mean-variance optimization across a grid of risk caps using CVXPY and multiple solvers (IPOPT if available, otherwise ECOS/OSQP/SCS).
-- Saves efficient frontier and allocation plots to disk so they render reliably outside notebooks.
+- Cleans and resamples prices before computing monthly returns.
+- Solves a long-only mean-variance optimization across a grid of risk caps using Pyomo and IPOPT.
+- Saves efficient frontier and allocation plots to disk (or shows them interactively with `--show`).
 
 ## Installation
 Create and activate a virtual environment, then install the dependencies:
@@ -17,7 +17,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-The requirements include the common open-source solvers that ship with CVXPY and `cyipopt` for IPOPT support on Linux. If IPOPT wheels are unavailable for your platform, CVXPY will automatically fall back to ECOS/OSQP/SCS.
+The requirements include Pyomo plus `cyipopt` for IPOPT support on Linux. Set `--ipopt-path` if IPOPT is installed elsewhere on your system.
 
 ## Usage
 Run the CLI from the repository root:
@@ -26,24 +26,22 @@ Run the CLI from the repository root:
 python main.py \
   --tickers KO GE NVDA \
   --start 2020-01-01 \
-  --end 2025-11-03 \
-  --interval 1d \
-  --monthly
+  --end 2024-01-01 \
+  --n-points 250 \
+  --output-dir artifacts
 ```
 
 Key options:
 - `--tickers`: One or more ticker symbols (space separated).
-- `--start` / `--end`: Date range (YYYY-MM-DD). Default end date is today.
-- `--interval`: Data interval accepted by yfinance (default: `1d`).
-- `--monthly`: Resample to month-end prices before computing returns (cleaner signals).
-- `--allow-short`: Enable shorting (disabled by default).
+- `--start` / `--end`: Date range (YYYY-MM-DD).
+- `--ipopt-path`: Path to your IPOPT executable (defaults to the IDAES install path).
+- `--n-points`: Number of variance caps to sweep for the frontier.
 - `--output-dir`: Where to write plots (`artifacts/` by default).
+- `--show`: Display plots interactively instead of saving.
 
-On completion the script writes two PNG files to the output directory:
+The CLI saves two PNG files when `--show` is not provided:
 - `efficient_frontier.png`
 - `allocation_by_risk.png`
-
-You can adjust plot behavior with `--x-axis` (`cap` to match the professor's variance axis, or `vol` for achieved volatility) and `--num-caps` to control the resolution of the risk grid.
 
 ## Project Structure
 ```
