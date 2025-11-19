@@ -28,7 +28,7 @@ python main.py \
   --start 2020-01-01 \
   --end 2024-01-01 \
   --n-points 250 \
-  --output-dir artifacts
+  --output-dir /output
 ```
 
 Key options:
@@ -36,7 +36,7 @@ Key options:
 - `--start` / `--end`: Date range (YYYY-MM-DD).
 - `--ipopt-path`: Path to your IPOPT executable (defaults to the IDAES install path).
 - `--n-points`: Number of variance caps to sweep for the frontier.
-- `--output-dir`: Where to write plots (`artifacts/` by default).
+- `--output-dir`: Where to write plots (`/output` by default).
 - `--show`: Display plots interactively instead of saving.
 
 The CLI saves two PNG files when `--show` is not provided:
