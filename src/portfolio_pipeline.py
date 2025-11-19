@@ -1,22 +1,10 @@
-"""Portfolio optimization helpers using Pyomo and IPOPT.
-
-This module mirrors the professor's example structure: it downloads
-monthly returns with yfinance, builds a Markowitz-style Pyomo model,
-solves a sweep of risk caps with IPOPT, and plots the efficient frontier
-and allocation paths.
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
-from typing import Iterable, Tuple
-
 """Portfolio optimization pipeline utilities.
 
 This module fetches prices with yfinance, prepares returns, solves a
 mean-variance optimization over a grid of variance caps, and generates
 plots that can be saved by the CLI.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,6 +13,10 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 import cvxpy as cp
+import matplotlib
+
+matplotlib.use("module://matplotlib_inline.backend_inline")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
