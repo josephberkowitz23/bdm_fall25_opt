@@ -43,6 +43,36 @@ The CLI saves two PNG files when `--show` is not provided:
 - `efficient_frontier.png`
 - `allocation_by_risk.png`
 
+## Quick copy/paste for a "Python tab" (REPL or notebook)
+If you just want to open a fresh Python session elsewhere (e.g., another tab/notebook) and run the core functions without wiring up the CLI, follow these steps:
+
+1. Make sure dependencies are installed in the environment backing that tab:
+   ```bash
+   pip install -r /path/to/clone/requirements.txt
+   ```
+2. Start Python in the directory where you can import the cloned repo (or add it to `PYTHONPATH`).
+3. Copy/paste the snippet below to fetch returns, solve the frontier, and write the plots:
+   ```python
+   from pathlib import Path
+
+   from src.portfolio_pipeline import fetch_returns, optimize_frontier, plot_allocations, plot_frontier
+
+   returns = fetch_returns(
+       ["KO", "GE", "NVDA"],
+       start="2020-01-01",
+       end="2024-01-01",
+       use_monthly=True,
+   )
+
+   result = optimize_frontier(returns, allow_short=False, max_weight=None, num_caps=150)
+
+   out_dir = Path("/output")
+   plot_frontier(result.frontier, out_dir / "efficient_frontier.png")
+   plot_allocations(result.allocations, x_axis="vol", output_path=out_dir / "allocation_by_risk.png")
+   ```
+
+This requires no command-line arguments and produces the same PNGs as the CLI. Adjust the ticker list, dates, or `x_axis` argument to explore other scenarios.
+
 ## Project Structure
 ```
 README.md
